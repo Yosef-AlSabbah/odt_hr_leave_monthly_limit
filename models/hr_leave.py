@@ -16,7 +16,7 @@ class HrLeave(models.Model):
     # -------------------------------------------------------------------------
 
     _MONTHLY_LEAVE_LIMIT = 5
-    _STATES_TO_CONSIDER = ("validate",)
+    _STATES_TO_CONSIDER = ("confirm", "validate", "validate1")
     _FIELDS_TRIGGERING_CONSTRAINT = ("request_date_from", "request_date_to", "employee_id", "state")
 
     # -------------------------------------------------------------------------
