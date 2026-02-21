@@ -3,7 +3,11 @@
 HR Leave Model Extension for Monthly Leave Limit.
 """
 
-from odoo import api, models
+from calendar import monthrange
+from datetime import date, datetime, time
+
+from odoo import api, models, _
+from odoo.exceptions import ValidationError
 
 
 class HrLeave(models.Model):
@@ -14,7 +18,7 @@ class HrLeave(models.Model):
     _inherit = "hr.leave"
 
     # -------------------------------------------------------------------------
-    # CONFIGURATION
+    # CONFIGURATIONS
     # -------------------------------------------------------------------------
 
     _MONTHLY_LEAVE_LIMIT = 5
@@ -31,9 +35,11 @@ class HrLeave(models.Model):
     # -------------------------------------------------------------------------
 
     @api.constrains(*_FIELDS_TRIGGERING_CONSTRAINT)
-    def _check_monthly_leave_limit(self):
+    def _check_monthly_leave_limit(self) -> None:
+        """
+        Constraint method to check the monthly leave limit for an employee.
+        """
         for rec in self:
-
             # Skip validation in case of not considered states
             if rec.state not in self._STATES_TO_CONSIDER:
                 continue
@@ -44,87 +50,122 @@ class HrLeave(models.Model):
 
             rec._check_month_limit_for_record()
 
-    def _check_month_limit_for_record(self):
+    def _check_month_limit_for_record(self) -> None:
         """
         The core function to validate the month limit for record.
         """
-        if not self.employee_id.resource_calendar_id:
-            return
 
-        # Total number of leave days in month with the current leave included
-        total_days = self._get_number_of_leaves_for_month(
+        total_leaves, total_carryover = self._compute_monthly_working_leave_days(
             self.employee_id, self.request_date_from
         )
 
         # Check if the total number if leave days in the month exceeds the limit
-        if total_days > self._MONTHLY_LEAVE_LIMIT:
-            from odoo.exceptions import ValidationError
-            from odoo import _
-
+        if total_leaves > self._MONTHLY_LEAVE_LIMIT:
             raise ValidationError(
                 _(
-                    "You cannot request more than %s working leave days in the month. You have already requested %s days in this month."
+                    "You cannot request more than %s working leave days in this month. "
+                    "You have already requested approximately %s days."
                 )
-                % (self._MONTHLY_LEAVE_LIMIT, total_days - self.number_of_days)
+                % (self._MONTHLY_LEAVE_LIMIT, round(total_leaves))
             )
 
+        if total_carryover > self._MONTHLY_LEAVE_LIMIT:
+            raise ValidationError(
+                _(
+                    "You cannot request more than %s working leave days in next month. "
+                    "You have already requested approximately %s days."
+                )
+                % (self._MONTHLY_LEAVE_LIMIT, round(total_carryover))
+            )
+
+    def _compute_monthly_working_leave_days(
+        self, employee, target_date
+    ) -> tuple[float, float]:
+        """
+        Computes monthly working leave days & Carryover days for an employee.
+        """
+        month_start_dt, month_end_dt = self._month_start_end_dt(target_date)
+
+        leaves = self._get_related_leaves_for_interval(
+            employee, month_start_dt, month_end_dt
+        )
+
+        total_leaves = 0.0
+        total_carryover = 0.0
+
+        for leave in leaves:
+            overlap_start, overlap_end = self._get_date_range_overlap(
+                leave.date_from, leave.date_to, month_start_dt, month_end_dt
+            )
+
+            if overlap_end <= overlap_start:
+                continue
+
+            num_of_days, carry = self._compute_leave_days_within_period(
+                employee, leave.number_of_days, overlap_start, overlap_end
+            )
+
+            total_leaves += num_of_days
+            total_carryover += carry
+
+        return total_leaves, total_carryover
+
     # -------------------------------------------------------------------------
-    # HELPER METHODS
+    # HELPER FUNCTION
     # -------------------------------------------------------------------------
 
     @staticmethod
-    def _get_month_bounds(target_date):
+    def _month_start_end_dt(target_date) -> tuple[datetime, datetime]:
         """
-        Helper method to get the start and end dates of the month for a given date.
-
-        returns: tuple of datetime objects representing the start and end of the month
+        returns datetime start & end of the month.
         """
-        from calendar import monthrange
-        from datetime import datetime, time
+        # Get the first day of the month
+        month_start = date(target_date.year, target_date.month, 1)
 
-        number_of_days_in_month = monthrange(target_date.year, target_date.month)[1]
-        month_start = target_date.replace(day=1)
-        month_end = target_date.replace(day=number_of_days_in_month)
-
-        return (
-            datetime.combine(month_start, time.min),
-            datetime.combine(month_end, time.max),
+        # Get the last day of the month, using the monthrange func to handel leap years and so on
+        month_end = date(
+            target_date.year,
+            target_date.month,
+            monthrange(target_date.year, target_date.month)[1],
         )
 
-    def _get_working_days_in_month(self, employee, target_date):
+        month_start_dt = datetime.combine(month_start, time.min)
+        month_end_dt = datetime.combine(month_end, time.max)
+
+        return month_start_dt, month_end_dt
+
+    def _get_related_leaves_for_interval(self, employee, month_start_dt, month_end_dt):
         """
-        Helper method to calculate the number of working days for an employee,
-        with and without considering leaves, and returns both values.
+        Returns the leaves related to an interval
         """
-
-        # Get the start & end of the month
-        month_start, month_end = self._get_month_bounds(target_date)
-
-        # Calculate the working days in the month with considering leaves
-        working_days_in_month_with_leaves = employee._get_work_days_data_batch(
-            month_start,
-            month_end,
-            compute_leaves=True,
-            calendar=employee.resource_calendar_id,
-        )[employee.id]["days"]
-
-        # Calculate the working days in the month without considering leaves
-        working_days_in_month_without_leaves = employee._get_work_days_data_batch(
-            month_start,
-            month_end,
-            compute_leaves=False,
-            calendar=employee.resource_calendar_id,
-        )[employee.id]["days"]
-
-        return working_days_in_month_with_leaves, working_days_in_month_without_leaves
-
-    def _get_number_of_leaves_for_month(self, employee, target_date):
-        """
-        Helper Method to Calculate the number of leave days used by the employee in the month of the target date.
-        """
-
-        working_days_in_month_with_leaves, working_days_in_month_without_leaves = (
-            self._get_working_days_in_month(employee, target_date)
+        return employee.env["hr.leave"].search(
+            [
+                ("employee_id", "=", employee.id),
+                ("state", "in", self._STATES_TO_CONSIDER),
+                ("date_from", "<=", month_end_dt),
+                ("date_to", ">=", month_start_dt),
+            ]
         )
 
-        return working_days_in_month_without_leaves - working_days_in_month_with_leaves
+    @staticmethod
+    def _get_date_range_overlap(
+        leave_start, leave_end, period_start, period_end
+    ) -> tuple[datetime, datetime]:
+        overlap_start = max(leave_start, period_start)
+        overlap_end = min(leave_end, period_end)
+
+        return overlap_start, overlap_end
+
+    @staticmethod
+    def _compute_leave_days_within_period(
+        employee, total_leave_days, start_dt, end_dt
+    ) -> tuple[float, float]:
+        calender_attendances = employee._get_calendar_attendances(
+            start_dt,
+            end_dt,
+        )
+
+        working_days_leaves = calender_attendances.get("days", 0.0)
+        carryover = total_leave_days - working_days_leaves
+
+        return working_days_leaves, carryover
