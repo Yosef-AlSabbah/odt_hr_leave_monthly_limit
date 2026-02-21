@@ -37,14 +37,14 @@ class HrLeave(models.Model):
     @api.constrains(*_FIELDS_TRIGGERING_CONSTRAINT)
     def _check_monthly_leave_limit(self) -> None:
         """
-        Constraint method to check the monthly leave limit for an employee.
+        Constraint to enforce monthly leave limits per employee.
         """
         for rec in self:
-            # Skip validation in case of not considered states
+            # Skip validation for excluded or irrelevant record states.
             if rec.state not in self._STATES_TO_CONSIDER:
                 continue
 
-            # Skip validation if employee or request_date_from is not set
+            # Bypass validation if employee ID or start date is missing.
             if not (rec.employee_id and rec.request_date_from):
                 continue
 
@@ -52,7 +52,7 @@ class HrLeave(models.Model):
 
     def _check_month_limit_for_record(self) -> None:
         """
-        The core function to validate the month limit for record.
+        Core logic for validating monthly leave limits against the record.
         """
 
         if self.number_of_days > self._MONTHLY_LEAVE_LIMIT * 2:
@@ -65,7 +65,7 @@ class HrLeave(models.Model):
             self.employee_id, self.request_date_from
         )
 
-        # Check if the total number if leave days in the month exceeds the limit
+        # Validate if total monthly leave exceeds the permitted limit.
         if total_leaves > self._MONTHLY_LEAVE_LIMIT:
             raise ValidationError(
                 _(
@@ -88,7 +88,7 @@ class HrLeave(models.Model):
         self, employee, target_date
     ) -> tuple[float, float]:
         """
-        Computes monthly working leave days & Carryover days for an employee.
+        Calculates an employee's monthly working leave days and carryover balances.
         """
         month_start_dt, month_end_dt = self._month_start_end_dt(target_date)
 
@@ -125,10 +125,10 @@ class HrLeave(models.Model):
         """
         returns datetime start & end of the month.
         """
-        # Get the first day of the month
+        # Determine the first day of the month.
         month_start = date(target_date.year, target_date.month, 1)
 
-        # Get the last day of the month, using the monthrange func to handel leap years and so on
+        # Get the month's end date, handling leap year logic via monthrange.
         month_end = date(
             target_date.year,
             target_date.month,
@@ -142,7 +142,7 @@ class HrLeave(models.Model):
 
     def _get_related_leaves_for_interval(self, employee, month_start_dt, month_end_dt):
         """
-        Returns the leaves related to an interval
+        Retrieves leave records for a specific employee within a defined date range.
         """
         return employee.env["hr.leave"].search(
             [
