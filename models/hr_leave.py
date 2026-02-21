@@ -55,6 +55,12 @@ class HrLeave(models.Model):
         The core function to validate the month limit for record.
         """
 
+        if self.number_of_days > self._MONTHLY_LEAVE_LIMIT * 2:
+            raise ValidationError(
+                _("You cannot request more than %s working leave days at a time. ")
+                % (self._MONTHLY_LEAVE_LIMIT * 2)
+            )
+
         total_leaves, total_carryover = self._compute_monthly_working_leave_days(
             self.employee_id, self.request_date_from
         )
