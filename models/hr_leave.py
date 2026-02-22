@@ -112,7 +112,7 @@ class HrLeave(models.Model):
             )
 
             total_leaves += num_of_days
-            total_carryover += carry
+            total_carryover += carry if leave.date_from >= month_start_dt else 0.0
 
         return total_leaves, total_carryover
 
