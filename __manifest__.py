@@ -11,9 +11,7 @@ while ensuring the logic withstands strict unit testing challenges.
     "website": "",
     "category": "Human Resources",
     "version": "18.0.1.0.0",
-    "depends": [
-        "hr_holidays"
-    ],
+    "depends": ["hr_holidays"],
     "installable": True,
     "application": False,
 }

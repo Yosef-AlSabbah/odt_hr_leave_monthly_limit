@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-
 from odoo import api, models, _
 from odoo.exceptions import ValidationError
 
@@ -11,6 +10,7 @@ class HrLeave(models.Model):
     """
     HR Leave Model Extension to force monthly leave limit.
     """
+
     _inherit = "hr.leave"
 
     def _get_affected_months(self):
@@ -19,9 +19,7 @@ class HrLeave(models.Model):
             return []
 
         employee_tz = timezone(
-            self.employee_id.resource_calendar_id.tz
-            or self.env.user.tz
-            or 'UTC'
+            self.employee_id.resource_calendar_id.tz or self.env.user.tz or "UTC"
         )
 
         local_date_from = utc.localize(self.date_from).astimezone(employee_tz)
@@ -34,16 +32,20 @@ class HrLeave(models.Model):
 
         while current <= local_date_to:
             month_end_local = (
-                    current + relativedelta(months=1) - relativedelta(seconds=1)
+                current + relativedelta(months=1) - relativedelta(seconds=1)
             )
 
-            month_start_utc = employee_tz.localize(
-                current.replace(tzinfo=None)
-            ).astimezone(utc).replace(tzinfo=None)
+            month_start_utc = (
+                employee_tz.localize(current.replace(tzinfo=None))
+                .astimezone(utc)
+                .replace(tzinfo=None)
+            )
 
-            month_end_utc = employee_tz.localize(
-                month_end_local.replace(tzinfo=None)
-            ).astimezone(utc).replace(tzinfo=None)
+            month_end_utc = (
+                employee_tz.localize(month_end_local.replace(tzinfo=None))
+                .astimezone(utc)
+                .replace(tzinfo=None)
+            )
 
             months.append((month_start_utc, month_end_utc))
             current += relativedelta(months=1)
@@ -61,13 +63,15 @@ class HrLeave(models.Model):
         return sum(hours for _date, hours in work_time.get(employee.id, []))
 
     def _get_existing_monthly_hours(self, employee, month_start, month_end):
-        existing_leaves = self.env['hr.leave'].search([
-            ('employee_id', '=', employee.id),
-            ('date_from', '<', month_end),
-            ('date_to', '>', month_start),
-            ('state', 'in', ['validate', 'validate1', 'confirm']),
-            ('id', 'not in', self.ids),
-        ])
+        existing_leaves = self.env["hr.leave"].search(
+            [
+                ("employee_id", "=", employee.id),
+                ("date_from", "<", month_end),
+                ("date_to", ">", month_start),
+                ("state", "in", ["validate", "validate1", "confirm"]),
+                ("id", "not in", self.ids),
+            ]
+        )
 
         total = 0.0
         for leave in existing_leaves:
@@ -80,7 +84,7 @@ class HrLeave(models.Model):
 
     def _check_monthly_limit(self):
         for leave in self:
-            if leave.state in ['refuse', 'cancel']:
+            if leave.state in ["refuse", "cancel"]:
                 continue
 
             if not leave.date_from or not leave.date_to:
@@ -104,15 +108,17 @@ class HrLeave(models.Model):
                 total = current_hours + existing_hours
 
                 if total > monthly_limit:
-                    raise ValidationError(_(
-                        "%(employee)s cannot take more than 5 working days off in one month.\n"
-                        "Already taken: %(existing).1f hours\n"
-                        "This request:  %(current).1f hours",
-                        employee=leave.employee_id.name,
-                        existing=existing_hours,
-                        current=current_hours,
-                    ))
+                    raise ValidationError(
+                        _(
+                            "%(employee)s cannot take more than 5 working days off in one month.\n"
+                            "Already taken: %(existing).1f hours\n"
+                            "This request:  %(current).1f hours",
+                            employee=leave.employee_id.name,
+                            existing=existing_hours,
+                            current=current_hours,
+                        )
+                    )
 
-    @api.constrains('date_from', 'date_to', 'employee_id', 'state')
+    @api.constrains("date_from", "date_to", "employee_id", "state")
     def _constrains_monthly_limit(self):
         self._check_monthly_limit()
